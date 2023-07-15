@@ -7,3 +7,4 @@ edition = "2021"
 
 [dependencies]
 byteorder = "*"
+clap = { version = "4.3.12", features = ["derive"] }

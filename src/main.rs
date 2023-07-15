@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::io::BufRead;
 use byteorder::{ReadBytesExt, LittleEndian};
+use clap::Parser;
 
 use std::fs::File;
 use std::io::Seek;
@@ -8,19 +9,26 @@ use std::io::SeekFrom;
 use std::io::Result;
 use std::io::Read;
 use std::io::BufReader;
-use std::env;
+
+/// Patches an .OBJ file
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    /// File to patch
+    filename: String,
+
+    /// File containing the symbols addresses
+    #[arg(short, long, default_value = "addresses.txt")]
+    addresses: String,
+}
 
 fn main() -> Result<()> {
-    let args: Vec<String> = env::args().collect();
-
-    if args.len() < 2 {
-        panic!("Not enough args");
-    }
+    let args = Args::parse();
 
     let mut symbol_addresses = HashMap::<String, u64>::new();
 
-    if std::fs::metadata("addresses.txt").is_ok() {
-        for line in std::fs::read_to_string("addresses.txt").unwrap().lines() {
+    if std::fs::metadata(&args.addresses).is_ok() {
+        for line in std::fs::read_to_string(&args.addresses).unwrap().lines() {
             let linedata: Vec<_> = line.split(" ").collect();
             assert_eq!(linedata.len(), 2);
             
@@ -29,9 +37,11 @@ fn main() -> Result<()> {
 
             symbol_addresses.insert(name, addr);
         }
+    } else {
+        println!("can't find '{}'", args.addresses);
     }
 
-    let mut f = File::open(&args[1])?;
+    let mut f = File::open(&args.filename)?;
     let format = f.read_u16::<LittleEndian>()?;
     assert_eq!(format, 0x01f2);
     let sections_count = f.read_u16::<LittleEndian>()?;
@@ -105,6 +115,7 @@ fn main() -> Result<()> {
 
         if name == ".text" {
             let pos = f.stream_position()?;
+            let self_name = &text_symbols[&section_id];
 
             f.seek(SeekFrom::Start(raw_data as u64))?;
             let mut buff = vec![0; size_raw as usize];
@@ -118,8 +129,11 @@ fn main() -> Result<()> {
                     assert_eq!(type_, 0x0006);
 
                     let sym_name = &symbols[symtab_index as usize];
-                    let patched = symbol_addresses[sym_name] as u32;
-                    let self_name = &text_symbols[&section_id];
+                    let patched = if symbol_addresses.contains_key(sym_name) {
+                        symbol_addresses[sym_name] as u32
+                    } else {
+                        panic!("symbol '{}' not found.", sym_name);
+                    };
                     let curr_addr = symbol_addresses[self_name] as u32 + offset;
                     let addr_diff = ((patched as i64) - (curr_addr as i64)) / 4;
  
@@ -129,7 +143,7 @@ fn main() -> Result<()> {
                     buff[(offset + 3) as usize] = (buff[(offset + 3) as usize] & 0b11) | ((addr_diff << 2) & 0b11111100) as u8;
                 }
             }
-            std::fs::write(format!("{}.bin", args[1]), buff)?;
+            std::fs::write(format!("{}.bin", self_name), buff)?;
             f.seek(SeekFrom::Start(pos))?;
         } else if name == ".data" {
             let pos = f.stream_position()?;
@@ -146,7 +160,11 @@ fn main() -> Result<()> {
                     assert_eq!(type_, 0x0002);
 
                     let sym_name = &symbols[symtab_index as usize];
-                    let patched = symbol_addresses[sym_name] as u32;
+                    let patched = if symbol_addresses.contains_key(sym_name) {
+                        symbol_addresses[sym_name] as u32
+                    } else {
+                        panic!("symbol '{}' not found.", sym_name);
+                    };
  
                     buff[offset as usize]       = (patched >> 24) as u8;
                     buff[(offset + 1) as usize] = (patched >> 16) as u8;
@@ -154,7 +172,7 @@ fn main() -> Result<()> {
                     buff[(offset + 3) as usize] = patched         as u8;
                 }
             }
-            std::fs::write(format!("{}.bin", args[1]), buff)?;
+            std::fs::write(format!("{}.bin", args.filename), buff)?;
 
             f.seek(SeekFrom::Start(pos))?;
         }
