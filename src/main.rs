@@ -1,3 +1,4 @@
+use std::path::Path;
 use std::collections::HashMap;
 use std::io::BufRead;
 use byteorder::{ReadBytesExt, LittleEndian};
@@ -20,6 +21,10 @@ struct Args {
     /// File containing the symbols addresses
     #[arg(short, long, default_value = "addresses.txt")]
     addresses: String,
+
+    /// Output directory
+    #[arg(short, long, default_value = "")]
+    output: String,
 }
 
 fn main() -> Result<()> {
@@ -99,6 +104,10 @@ fn main() -> Result<()> {
     }
     f.seek(SeekFrom::Start(pos))?;
 
+    let path = Path::new(&args.filename);
+    let path = path.with_extension("");
+    let path = path.to_str().unwrap();
+
     for section_id in 1..=sections_count {
         let mut buff = vec![0; 8usize];
         f.read(&mut buff).unwrap();
@@ -136,6 +145,9 @@ fn main() -> Result<()> {
                     };
                     let curr_addr = symbol_addresses[self_name] as u32 + offset;
                     let addr_diff = ((patched as i64) - (curr_addr as i64)) / 4;
+
+                    // check that it's a 'b' instruction.
+                    assert_eq!(buff[offset as usize] & 0b11111100, 0x48);
  
                     buff[offset as usize]       = (buff[offset as usize] & 0b11111100) | ((addr_diff >> 22) & 0b11) as u8;
                     buff[(offset + 1) as usize] = ((addr_diff >> 14) & 0xff) as u8;
@@ -143,7 +155,12 @@ fn main() -> Result<()> {
                     buff[(offset + 3) as usize] = (buff[(offset + 3) as usize] & 0b11) | ((addr_diff << 2) & 0b11111100) as u8;
                 }
             }
-            std::fs::write(format!("{}.bin", self_name), buff)?;
+
+            let output = if args.output.len() > 0 {
+                std::fs::create_dir_all(&args.output).unwrap();
+                format!("{}/", args.output)
+            } else { "".to_string() };
+            std::fs::write(format!("{}{}.bin", output, self_name), buff)?;
             f.seek(SeekFrom::Start(pos))?;
         } else if name == ".data" {
             let pos = f.stream_position()?;
@@ -172,8 +189,12 @@ fn main() -> Result<()> {
                     buff[(offset + 3) as usize] = patched         as u8;
                 }
             }
-            std::fs::write(format!("{}.bin", args.filename), buff)?;
 
+            let output = if args.output.len() > 0 {
+                std::fs::create_dir_all(&args.output).unwrap();
+                format!("{}/", args.output)
+            } else { "".to_string() };
+            std::fs::write(format!("{}{}.bin", output, path), buff)?;
             f.seek(SeekFrom::Start(pos))?;
         }
     }
