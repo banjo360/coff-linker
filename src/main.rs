@@ -105,7 +105,7 @@ fn main() -> Result<()> {
     f.seek(SeekFrom::Start(pos))?;
 
     let path = Path::new(&args.filename);
-    let path = path.with_extension("");
+    let path = path.file_stem().unwrap();
     let path = path.to_str().unwrap();
 
     for section_id in 1..=sections_count {
