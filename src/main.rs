@@ -151,12 +151,7 @@ fn main() -> Result<()> {
                     let patched = if symbol_addresses.contains_key(sym_name) {
                         symbol_addresses[sym_name] as u32
                     } else {
-                        if sym_name.starts_with("__real@") {
-                            println!("Constant not handled: '0x{}'", &sym_name[7..]);
-                            0u32
-                        } else {
-                            panic!("symbol '{}' not found.", sym_name);
-                        }
+                        panic!("symbol '{}' not found.", sym_name);
                     };
 
                     let instruction = buff[offset as usize] & 0b11111100;
@@ -172,19 +167,17 @@ fn main() -> Result<()> {
                         buff[(offset + 2) as usize] = ((addr_diff >> 6) & 0xff) as u8;
                         buff[(offset + 3) as usize] = (buff[(offset + 3) as usize] & 0b11) | ((addr_diff << 2) & 0b11111100) as u8;
                     } else if instruction == ADDIS_INST {
-                        println!("ADDIS: {:?} at offset 0x{:x} => {}", type_, offset, sym_name);
-                        println!("patched: 0x{:x}", patched);
                         assert_eq!(type_, 0x0010);
                         buff[(offset + 2) as usize] = (patched >> 24) as u8;
                         buff[(offset + 3) as usize] = ((patched >> 16) & 0xff) as u8;
                     } else if instruction == LFD_INST {
-                        assert_eq!(type_, 0x0011);
                         println!("LFD: {:?} at offset 0x{:x}", type_, offset);
                         println!("patched: 0x{:x}", patched);
+                        assert_eq!(type_, 0x0011);
                     } else if instruction == LFS_INST {
                         assert_eq!(type_, 0x0011);
-                        println!("LFS: {:?} at offset 0x{:x}", type_, offset);
-                        println!("patched: 0x{:x}", patched);
+                        buff[(offset + 2) as usize] = (patched >> 24) as u8;
+                        buff[(offset + 3) as usize] = ((patched >> 16) & 0xff) as u8;
                     } else {
                         panic!("Unknown instruction 0x{:x} ({})", instruction, instruction >> 2);
                     }
