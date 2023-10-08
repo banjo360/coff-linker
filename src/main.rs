@@ -11,6 +11,11 @@ use std::io::Result;
 use std::io::Read;
 use std::io::BufReader;
 
+static B_INST: u8 = 0x48;
+static ADDIS_INST: u8 = 0x3C;
+static LFD_INST: u8 = 0xC8;
+static LFS_INST: u8 = 0xC0;
+
 /// Patches an .OBJ file
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -108,6 +113,7 @@ fn main() -> Result<()> {
     let path = path.file_stem().unwrap();
     let path = path.to_str().unwrap();
 
+    f.seek(SeekFrom::Start(pos))?;
     for section_id in 1..=sections_count {
         let mut buff = vec![0; 8usize];
         f.read(&mut buff).unwrap();
@@ -135,24 +141,53 @@ fn main() -> Result<()> {
                     let offset = f.read_u32::<LittleEndian>()?;
                     let symtab_index = f.read_u32::<LittleEndian>()?;
                     let type_ = f.read_u16::<LittleEndian>()?;
-                    assert_eq!(type_, 0x0006);
+
+                    if type_ == 18 {
+                        // skip IMAGE_REL_PPC_PAIR
+                        continue;
+                    }
 
                     let sym_name = &symbols[symtab_index as usize];
                     let patched = if symbol_addresses.contains_key(sym_name) {
                         symbol_addresses[sym_name] as u32
                     } else {
-                        panic!("symbol '{}' not found.", sym_name);
+                        if sym_name.starts_with("__real@") {
+                            println!("Constant not handled: '0x{}'", &sym_name[7..]);
+                            0u32
+                        } else {
+                            panic!("symbol '{}' not found.", sym_name);
+                        }
                     };
-                    let curr_addr = symbol_addresses[self_name] as u32 + offset;
-                    let addr_diff = ((patched as i64) - (curr_addr as i64)) / 4;
 
-                    // check that it's a 'b' instruction.
-                    assert_eq!(buff[offset as usize] & 0b11111100, 0x48);
- 
-                    buff[offset as usize]       = (buff[offset as usize] & 0b11111100) | ((addr_diff >> 22) & 0b11) as u8;
-                    buff[(offset + 1) as usize] = ((addr_diff >> 14) & 0xff) as u8;
-                    buff[(offset + 2) as usize] = ((addr_diff >> 6) & 0xff) as u8;
-                    buff[(offset + 3) as usize] = (buff[(offset + 3) as usize] & 0b11) | ((addr_diff << 2) & 0b11111100) as u8;
+                    let instruction = buff[offset as usize] & 0b11111100;
+
+                    if instruction == B_INST {
+                        assert_eq!(type_, 0x0006);
+
+                        let curr_addr = symbol_addresses[self_name] as u32 + offset;
+                        let addr_diff = ((patched as i64) - (curr_addr as i64)) / 4;
+     
+                        buff[offset as usize]       = (buff[offset as usize] & 0b11111100) | ((addr_diff >> 22) & 0b11) as u8;
+                        buff[(offset + 1) as usize] = ((addr_diff >> 14) & 0xff) as u8;
+                        buff[(offset + 2) as usize] = ((addr_diff >> 6) & 0xff) as u8;
+                        buff[(offset + 3) as usize] = (buff[(offset + 3) as usize] & 0b11) | ((addr_diff << 2) & 0b11111100) as u8;
+                    } else if instruction == ADDIS_INST {
+                        println!("ADDIS: {:?} at offset 0x{:x} => {}", type_, offset, sym_name);
+                        println!("patched: 0x{:x}", patched);
+                        assert_eq!(type_, 0x0010);
+                        buff[(offset + 2) as usize] = (patched >> 24) as u8;
+                        buff[(offset + 3) as usize] = ((patched >> 16) & 0xff) as u8;
+                    } else if instruction == LFD_INST {
+                        assert_eq!(type_, 0x0011);
+                        println!("LFD: {:?} at offset 0x{:x}", type_, offset);
+                        println!("patched: 0x{:x}", patched);
+                    } else if instruction == LFS_INST {
+                        assert_eq!(type_, 0x0011);
+                        println!("LFS: {:?} at offset 0x{:x}", type_, offset);
+                        println!("patched: 0x{:x}", patched);
+                    } else {
+                        panic!("Unknown instruction 0x{:x} ({})", instruction, instruction >> 2);
+                    }
                 }
             }
 
@@ -196,6 +231,10 @@ fn main() -> Result<()> {
             } else { "".to_string() };
             std::fs::write(format!("{}{}.bin", output, path), buff)?;
             f.seek(SeekFrom::Start(pos))?;
+        } else if name == ".rdata" {
+            // skip
+        } else {
+            //println!("segment {}: {:?}", section_id, name);
         }
     }
 
