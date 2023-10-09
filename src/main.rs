@@ -171,9 +171,9 @@ fn main() -> Result<()> {
                         buff[(offset + 2) as usize] = (patched >> 24) as u8;
                         buff[(offset + 3) as usize] = ((patched >> 16) & 0xff) as u8;
                     } else if instruction == LFD_INST {
-                        println!("LFD: {:?} at offset 0x{:x}", type_, offset);
-                        println!("patched: 0x{:x}", patched);
                         assert_eq!(type_, 0x0011);
+                        buff[(offset + 2) as usize] = ((patched >> 8) & 0xff) as u8;
+                        buff[(offset + 3) as usize] = (patched & 0xff) as u8;
                     } else if instruction == LFS_INST {
                         assert_eq!(type_, 0x0011);
                         buff[(offset + 2) as usize] = ((patched >> 8) & 0xff) as u8;
