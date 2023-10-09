@@ -195,7 +195,7 @@ fn main() -> Result<()> {
             } else { "".to_string() };
             std::fs::write(format!("{}{}.bin", output, self_name), buff)?;
             f.seek(SeekFrom::Start(pos))?;
-        } else if name == ".data" {
+        } else if name == ".data" || name == ".rdata" {
             let pos = f.stream_position()?;
 
             f.seek(SeekFrom::Start(raw_data as u64))?;
@@ -227,12 +227,8 @@ fn main() -> Result<()> {
                 std::fs::create_dir_all(&args.output).unwrap();
                 format!("{}/", args.output)
             } else { "".to_string() };
-            std::fs::write(format!("{}{}.bin", output, path), buff)?;
+            std::fs::write(format!("{}{}{}.bin", output, path, name), buff)?;
             f.seek(SeekFrom::Start(pos))?;
-        } else if name == ".rdata" {
-            // skip
-        } else {
-            //println!("segment {}: {:?}", section_id, name);
         }
     }
 
