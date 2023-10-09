@@ -176,8 +176,8 @@ fn main() -> Result<()> {
                         assert_eq!(type_, 0x0011);
                     } else if instruction == LFS_INST {
                         assert_eq!(type_, 0x0011);
-                        buff[(offset + 2) as usize] = (patched >> 24) as u8;
-                        buff[(offset + 3) as usize] = ((patched >> 16) & 0xff) as u8;
+                        buff[(offset + 2) as usize] = ((patched >> 8) & 0xff) as u8;
+                        buff[(offset + 3) as usize] = (patched & 0xff) as u8;
                     } else {
                         panic!("Unknown instruction 0x{:x} ({})", instruction, instruction >> 2);
                     }
