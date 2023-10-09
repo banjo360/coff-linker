@@ -168,8 +168,13 @@ fn main() -> Result<()> {
                         buff[(offset + 3) as usize] = (buff[(offset + 3) as usize] & 0b11) | ((addr_diff << 2) & 0b11111100) as u8;
                     } else if instruction == ADDIS_INST {
                         assert_eq!(type_, 0x0010);
+                        let third_byte = if (patched & 0x8000) != 0 {
+                            (((patched >> 16) + 1) & 0xff) as u8
+                        } else {
+                            ((patched >> 16) & 0xff) as u8
+                        };
                         buff[(offset + 2) as usize] = (patched >> 24) as u8;
-                        buff[(offset + 3) as usize] = ((patched >> 16) & 0xff) as u8;
+                        buff[(offset + 3) as usize] = third_byte;
                     } else if instruction == LFD_INST {
                         assert_eq!(type_, 0x0011);
                         buff[(offset + 2) as usize] = ((patched >> 8) & 0xff) as u8;
