@@ -159,6 +159,10 @@ fn main() -> Result<()> {
                     if instruction == B_INST {
                         assert_eq!(type_, 0x0006);
 
+                        if !symbol_addresses.contains_key(self_name) {
+                            panic!("Can't find address of {self_name}");
+                        }
+
                         let curr_addr = symbol_addresses[self_name] as u32 + offset;
                         let addr_diff = ((patched as i64) - (curr_addr as i64)) / 4;
      
