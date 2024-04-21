@@ -1,3 +1,5 @@
+use std::io::Write;
+use std::fs;
 use std::path::Path;
 use std::collections::HashMap;
 use std::io::BufRead;
@@ -11,8 +13,9 @@ use std::io::Result;
 use std::io::Read;
 use std::io::BufReader;
 
-static B_INST: u8 = 0x48;
+static ADDI_INST: u8 = 0x38;
 static ADDIS_INST: u8 = 0x3C;
+static B_INST: u8 = 0x48;
 static LFD_INST: u8 = 0xC8;
 static LFS_INST: u8 = 0xC0;
 
@@ -113,6 +116,13 @@ fn main() -> Result<()> {
     let path = path.file_stem().unwrap();
     let path = path.to_str().unwrap();
 
+    let output = if args.output.len() > 0 {
+        std::fs::create_dir_all(&args.output).unwrap();
+        format!("{}/", args.output)
+    } else { "".to_string() };
+    let _ = fs::remove_file(format!("{}{}.data.bin", output, path));
+    let _ = fs::remove_file(format!("{}{}.rdata.bin", output, path));
+
     f.seek(SeekFrom::Start(pos))?;
     for section_id in 1..=sections_count {
         let mut buff = vec![0; 8usize];
@@ -131,12 +141,14 @@ fn main() -> Result<()> {
         if name == ".text" {
             let pos = f.stream_position()?;
             let self_name = &text_symbols[&section_id];
+            let self_addr = symbol_addresses[self_name];
 
             f.seek(SeekFrom::Start(raw_data as u64))?;
             let mut buff = vec![0; size_raw as usize];
             f.read(&mut buff).unwrap();
             if reloc_count > 0 {
                 f.seek(SeekFrom::Start(reloc_ptr as u64))?;
+                let mut extra_data_offset = buff.len() as u64;
                 for _ in 0..reloc_count {
                     let offset = f.read_u32::<LittleEndian>()?;
                     let symtab_index = f.read_u32::<LittleEndian>()?;
@@ -151,7 +163,10 @@ fn main() -> Result<()> {
                     let patched = if symbol_addresses.contains_key(sym_name) {
                         symbol_addresses[sym_name] as u32
                     } else {
-                        panic!("symbol '{}' not found.", sym_name);
+                        let new_addr = self_addr + extra_data_offset;
+                        symbol_addresses.insert(sym_name.clone(), new_addr);
+                        extra_data_offset += 0;
+                        new_addr as u32
                     };
 
                     let instruction = buff[offset as usize] & 0b11111100;
@@ -187,16 +202,21 @@ fn main() -> Result<()> {
                         assert_eq!(type_, 0x0011);
                         buff[(offset + 2) as usize] = ((patched >> 8) & 0xff) as u8;
                         buff[(offset + 3) as usize] = (patched & 0xff) as u8;
+                    } else if instruction == ADDI_INST {
+                        assert_eq!(type_, 0x0011);
+                        let third_byte = if (patched & 0x8000) != 0 {
+                            (((patched >> 16) + 1) & 0xff) as u8
+                        } else {
+                            ((patched >> 16) & 0xff) as u8
+                        };
+                        buff[(offset + 2) as usize] = (patched >> 24) as u8;
+                        buff[(offset + 3) as usize] = third_byte;
                     } else {
-                        panic!("Unknown instruction 0x{:x} ({})", instruction, instruction >> 2);
+                        panic!("{sym_name}: Unknown instruction 0x{:x} ({}) at offset {:#X}", instruction, instruction >> 2, offset + raw_data);
                     }
                 }
             }
 
-            let output = if args.output.len() > 0 {
-                std::fs::create_dir_all(&args.output).unwrap();
-                format!("{}/", args.output)
-            } else { "".to_string() };
             std::fs::write(format!("{}{}.bin", output, self_name), buff)?;
             f.seek(SeekFrom::Start(pos))?;
         } else if name == ".data" || name == ".rdata" {
@@ -227,14 +247,11 @@ fn main() -> Result<()> {
                 }
             }
 
-            let output = if args.output.len() > 0 {
-                std::fs::create_dir_all(&args.output).unwrap();
-                format!("{}/", args.output)
-            } else { "".to_string() };
-            std::fs::write(format!("{}{}{}.bin", output, path, name), buff)?;
+            let mut output_file = File::options().create(true).write(true).append(true).open(format!("{}{}{}.bin", output, path, name))?;
+            output_file.write(&buff)?;
             f.seek(SeekFrom::Start(pos))?;
         }
     }
-
+    
     Ok(())
 }
