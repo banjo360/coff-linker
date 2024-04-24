@@ -18,6 +18,8 @@ static ADDIS_INST: u8 = 0x3C;
 static B_INST: u8 = 0x48;
 static LFD_INST: u8 = 0xC8;
 static LFS_INST: u8 = 0xC0;
+static LWZ_INST: u8 = 0x80;
+static STW_INST: u8 = 0x90;
 
 /// Patches an .OBJ file
 #[derive(Parser, Debug)]
@@ -51,7 +53,7 @@ fn main() -> Result<()> {
             symbol_addresses.insert(name, addr);
         }
     } else {
-        println!("can't find '{}'", args.addresses);
+        panic!("can't find '{}'", args.addresses);
     }
 
     let mut f = File::open(&args.filename)?;
@@ -62,12 +64,13 @@ fn main() -> Result<()> {
     let symbols_table = f.read_u32::<LittleEndian>()?;
     let symbols_count = f.read_u32::<LittleEndian>()?;
     let strings_table = symbols_table + 18 * symbols_count;
-    let _size_of_op_header = f.read_u16::<LittleEndian>()?;
+    let size_of_op_header = f.read_u16::<LittleEndian>()?;
     let characteristics = f.read_u16::<LittleEndian>()?;
     assert_eq!(characteristics, 0x0180);
+    assert_eq!(size_of_op_header, 0);
 
     let mut symbols: Vec<String> = vec![String::new(); symbols_count as usize];
-    let mut section_symbol_names = HashMap::<u16, Vec<String>>::new();
+    let mut section_symbol_names = HashMap::<u16, Vec<(String, u32)>>::new();
 
     let pos = f.stream_position()?;
     f.seek(SeekFrom::Start(symbols_table as u64))?;
@@ -93,16 +96,16 @@ fn main() -> Result<()> {
         };
         symbols[id as usize] = name.clone();
 
-        let _value = f.read_u32::<LittleEndian>()?;
+        let value = f.read_u32::<LittleEndian>()?;
         let section_number  = f.read_u16::<LittleEndian>()?;
         let _type_ = f.read_u16::<LittleEndian>()?;
         let _storage_class = f.read_u8()?;
         let number_of_aux_symbols = f.read_u8()?;
 
         if section_symbol_names.contains_key(&section_number) {
-            section_symbol_names.get_mut(&section_number).unwrap().push(name);
+            section_symbol_names.get_mut(&section_number).unwrap().push((name, value));
         } else {
-            section_symbol_names.insert(section_number, vec![name]);
+            section_symbol_names.insert(section_number, vec![(name, value)]);
         }
 
         let mut aux = vec![0; (number_of_aux_symbols * 18) as usize];
@@ -121,12 +124,14 @@ fn main() -> Result<()> {
     } else { "".to_string() };
     let _ = fs::remove_file(format!("{}{}.data.bin", output, path));
     let _ = fs::remove_file(format!("{}{}.rdata.bin", output, path));
+    let _ = fs::remove_file(format!("{}{}.bss.bin", output, path));
 
     let mut extra_data_offset = 0;
 
-    for i in 0..2 {
-        let parse_text = i == 1;
-
+    // phase 0: get .text size
+    // phase 1: calculate .rdata's virtual addresses
+    // phase 2: patch and export .text
+    for phase in 0..3 {
         f.seek(SeekFrom::Start(pos))?;
         for section_id in 1..=sections_count {
             let mut buff = vec![0; 8usize];
@@ -142,22 +147,15 @@ fn main() -> Result<()> {
             let _lines_count = f.read_u16::<LittleEndian>()?;
             let _characs = f.read_u32::<LittleEndian>()?;
 
-            if name == ".text" && !parse_text {
-                let mut text_section_addr = 0;
-                for (_, v) in section_symbol_names.iter() {
-                    if v[0] == ".text" {
-                        text_section_addr = symbol_addresses[&v[1]];
-                    }
-                }
-
-                extra_data_offset = text_section_addr as u32 + size_raw;
+            if name == ".text" && phase == 0 {
+                extra_data_offset = size_raw;
             }
 
-            if name == ".text" && parse_text {
+            if name == ".text" && phase == 2 {
                 let pos = f.stream_position()?;
                 let self_name_vec = &section_symbol_names[&section_id];
-                assert_eq!(name, self_name_vec[0]);
-                let self_name = &self_name_vec[1];
+                assert_eq!(name, self_name_vec[0].0);
+                let self_name = &self_name_vec[1].0;
 
                 f.seek(SeekFrom::Start(raw_data as u64))?;
                 let mut buff = vec![0; size_raw as usize];
@@ -214,6 +212,14 @@ fn main() -> Result<()> {
                             assert_eq!(type_, 0x0011);
                             buff[(offset + 2) as usize] = ((patched >> 8) & 0xff) as u8;
                             buff[(offset + 3) as usize] = (patched & 0xff) as u8;
+                        } else if instruction == LWZ_INST {
+                            assert_eq!(type_, 0x0011);
+                            buff[(offset + 2) as usize] = ((patched >> 8) & 0xff) as u8;
+                            buff[(offset + 3) as usize] = (patched & 0xff) as u8;
+                        } else if instruction == STW_INST {
+                            assert_eq!(type_, 0x0011);
+                            buff[(offset + 2) as usize] = ((patched >> 8) & 0xff) as u8;
+                            buff[(offset + 3) as usize] = (patched & 0xff) as u8;
                         } else if instruction == ADDI_INST {
                             assert_eq!(type_, 0x0011);
                             let third_byte = if (patched & 0x8000) != 0 {
@@ -231,14 +237,14 @@ fn main() -> Result<()> {
 
                 std::fs::write(format!("{}{}.bin", output, self_name), buff)?;
                 f.seek(SeekFrom::Start(pos))?;
-            } else if (name == ".data" || name == ".rdata") && !parse_text {
+            } else if (name == ".data" || name == ".rdata") && phase == 1 {
                 let pos = f.stream_position()?;
                 let self_name_vec = &section_symbol_names[&section_id];
-                assert_eq!(name, self_name_vec[0]);
-                let self_name = &self_name_vec[1];
+                assert_eq!(name, self_name_vec[0].0);
+                let self_name = &self_name_vec[1].0;
 
-                let new_addr = extra_data_offset;
-                symbol_addresses.insert(self_name.clone(), new_addr.into());
+                let new_addr = symbol_addresses["hack_loop"] + extra_data_offset as u64;
+                symbol_addresses.insert(self_name.clone(), new_addr);
                 extra_data_offset += size_raw;
 
                 f.seek(SeekFrom::Start(raw_data as u64))?;
@@ -268,6 +274,19 @@ fn main() -> Result<()> {
 
                 let mut output_file = File::options().create(true).write(true).append(true).open(format!("{}{}{}.bin", output, path, name))?;
                 output_file.write(&buff)?;
+                f.seek(SeekFrom::Start(pos))?;
+            } else if name == ".bss" && phase == 1 {
+                assert_eq!(reloc_count, 0);
+                let pos = f.stream_position()?;
+                let self_name_vec = &section_symbol_names[&section_id];
+                assert_eq!(name, self_name_vec[0].0);
+
+                for (self_name, offset) in self_name_vec.iter().skip(1) {
+                    let new_addr = symbol_addresses["hack_loop"] + extra_data_offset as u64 + *offset as u64;
+                    symbol_addresses.insert(self_name.clone(), new_addr);
+                }
+                extra_data_offset += size_raw;
+
                 f.seek(SeekFrom::Start(pos))?;
             }
         }
