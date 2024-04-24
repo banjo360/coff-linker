@@ -127,6 +127,8 @@ fn main() -> Result<()> {
     let _ = fs::remove_file(format!("{}{}.bss.bin", output, path));
 
     let mut extra_data_offset = 0;
+    let mut bss_offset = 0;
+    let data_section_end = 0x825085b0; // BK's, need to make it dynamic
 
     // phase 0: get .text size
     // phase 1: calculate .rdata's virtual addresses
@@ -190,7 +192,7 @@ fn main() -> Result<()> {
 
                             let curr_addr = symbol_addresses[self_name] as u32 + offset;
                             let addr_diff = ((patched as i64) - (curr_addr as i64)) / 4;
-         
+
                             buff[offset as usize]       = (buff[offset as usize] & 0b11111100) | ((addr_diff >> 22) & 0b11) as u8;
                             buff[(offset + 1) as usize] = ((addr_diff >> 14) & 0xff) as u8;
                             buff[(offset + 2) as usize] = ((addr_diff >> 6) & 0xff) as u8;
@@ -222,13 +224,8 @@ fn main() -> Result<()> {
                             buff[(offset + 3) as usize] = (patched & 0xff) as u8;
                         } else if instruction == ADDI_INST {
                             assert_eq!(type_, 0x0011);
-                            let third_byte = if (patched & 0x8000) != 0 {
-                                (((patched >> 16) + 1) & 0xff) as u8
-                            } else {
-                                ((patched >> 16) & 0xff) as u8
-                            };
-                            buff[(offset + 2) as usize] = (patched >> 24) as u8;
-                            buff[(offset + 3) as usize] = third_byte;
+                            buff[(offset + 2) as usize] = ((patched >> 8) & 0xff) as u8;
+                            buff[(offset + 3) as usize] = (patched & 0xff) as u8;
                         } else {
                             panic!("{sym_name}: Unknown instruction 0x{:x} ({}) at offset {:#X}", instruction, instruction >> 2, offset + raw_data);
                         }
@@ -282,10 +279,14 @@ fn main() -> Result<()> {
                 assert_eq!(name, self_name_vec[0].0);
 
                 for (self_name, offset) in self_name_vec.iter().skip(1) {
-                    let new_addr = symbol_addresses["hack_loop"] + extra_data_offset as u64 + *offset as u64;
+                    let new_addr = data_section_end + bss_offset as u64 + *offset as u64;
                     symbol_addresses.insert(self_name.clone(), new_addr);
                 }
-                extra_data_offset += size_raw;
+
+                bss_offset += size_raw;
+
+                let mut output_file = File::options().create(true).write(true).append(true).open(format!("{}{}{}.bin", output, path, name))?;
+                output_file.write(&vec![0u8; size_raw as usize])?;
 
                 f.seek(SeekFrom::Start(pos))?;
             }
