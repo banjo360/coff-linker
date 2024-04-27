@@ -126,6 +126,7 @@ fn main() -> Result<()> {
     let _ = fs::remove_file(format!("{}{}.rdata.bin", output, path));
     let _ = fs::remove_file(format!("{}{}.bss.bin", output, path));
 
+    let mut extra_text_offset = 0;
     let mut extra_data_offset = 0;
     let mut bss_offset = 0;
     let data_section_end = 0x825085b0; // BK's, need to make it dynamic
@@ -150,7 +151,7 @@ fn main() -> Result<()> {
             let _characs = f.read_u32::<LittleEndian>()?;
 
             if name == ".text" && phase == 0 {
-                extra_data_offset = size_raw;
+                extra_text_offset = size_raw;
             }
 
             if name == ".text" && phase == 2 {
@@ -240,7 +241,8 @@ fn main() -> Result<()> {
                 assert_eq!(name, self_name_vec[0].0);
                 let self_name = &self_name_vec[1].0;
 
-                let new_addr = symbol_addresses["hack_loop"] + extra_data_offset as u64;
+                // hardcoded Banjo's ".rdata end section" address
+                let new_addr = 0x82079C88 + extra_data_offset as u64;
                 symbol_addresses.insert(self_name.clone(), new_addr);
                 extra_data_offset += size_raw;
 
