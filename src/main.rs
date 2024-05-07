@@ -126,9 +126,8 @@ fn main() -> Result<()> {
     let _ = fs::remove_file(format!("{}{}.rdata.bin", output, path));
     let _ = fs::remove_file(format!("{}{}.bss.bin", output, path));
 
-    let mut extra_text_offset = 0;
+    let mut extra_rdata_offset = 0;
     let mut extra_data_offset = 0;
-    let mut bss_offset = 0;
     let data_section_end = 0x825085b0; // BK's, need to make it dynamic
 
     // phase 0: get .text size
@@ -149,10 +148,6 @@ fn main() -> Result<()> {
             let reloc_count = f.read_u16::<LittleEndian>()?;
             let _lines_count = f.read_u16::<LittleEndian>()?;
             let _characs = f.read_u32::<LittleEndian>()?;
-
-            if name == ".text" && phase == 0 {
-                extra_text_offset = size_raw;
-            }
 
             if name == ".text" && phase == 2 {
                 let pos = f.stream_position()?;
@@ -235,14 +230,57 @@ fn main() -> Result<()> {
 
                 std::fs::write(format!("{}{}.bin", output, self_name), buff)?;
                 f.seek(SeekFrom::Start(pos))?;
-            } else if (name == ".data" || name == ".rdata") && phase == 1 {
+            } else if name == ".rdata" && phase == 1 {
                 let pos = f.stream_position()?;
                 let self_name_vec = &section_symbol_names[&section_id];
                 assert_eq!(name, self_name_vec[0].0);
                 let self_name = &self_name_vec[1].0;
 
                 // hardcoded Banjo's ".rdata end section" address
-                let new_addr = 0x82079C88 + extra_data_offset as u64;
+                let new_addr = 0x82079C88 + extra_rdata_offset as u64;
+                symbol_addresses.insert(self_name.clone(), new_addr);
+                extra_rdata_offset += size_raw;
+
+                f.seek(SeekFrom::Start(raw_data as u64))?;
+                let mut buff = vec![0; size_raw as usize];
+                f.read(&mut buff).unwrap();
+
+                assert_eq!(reloc_count, 0);
+                /*if reloc_count > 0 {
+                    f.seek(SeekFrom::Start(reloc_ptr as u64))?;
+                    for _ in 0..reloc_count {
+                        let offset = f.read_u32::<LittleEndian>()?;
+                        let symtab_index = f.read_u32::<LittleEndian>()?;
+                        let type_ = f.read_u16::<LittleEndian>()?;
+                        assert_eq!(type_, 0x0002);
+
+                        let sym_name = &symbols[symtab_index as usize];
+                        let patched = if symbol_addresses.contains_key(sym_name) {
+                            symbol_addresses[sym_name] as u32
+                        } else {
+                            panic!("symbol '{}' not found.", sym_name);
+                        };
+     
+                        buff[offset as usize]       = (patched >> 24) as u8;
+                        buff[(offset + 1) as usize] = (patched >> 16) as u8;
+                        buff[(offset + 2) as usize] = (patched >> 8)  as u8;
+                        buff[(offset + 3) as usize] = patched         as u8;
+                    }
+                }*/
+
+                let mut output_file = File::options().create(true).write(true).append(true).open(format!("{}{}{}.bin", output, path, name))?;
+                output_file.write(&buff)?;
+                f.seek(SeekFrom::Start(pos))?;
+            } else if name == ".data" && phase == 1 {
+                let pos = f.stream_position()?;
+                let self_name_vec = &section_symbol_names[&section_id];
+                assert_eq!(name, self_name_vec[0].0);
+                let self_name = &self_name_vec[1].0;
+
+                println!("{:?}", self_name_vec);
+
+                // hardcoded Banjo's ".data end section" address
+                let new_addr = 0x825085b0 + extra_data_offset as u64;
                 symbol_addresses.insert(self_name.clone(), new_addr);
                 extra_data_offset += size_raw;
 
@@ -281,11 +319,11 @@ fn main() -> Result<()> {
                 assert_eq!(name, self_name_vec[0].0);
 
                 for (self_name, offset) in self_name_vec.iter().skip(1) {
-                    let new_addr = data_section_end + bss_offset as u64 + *offset as u64;
+                    let new_addr = data_section_end + extra_data_offset as u64 + *offset as u64;
                     symbol_addresses.insert(self_name.clone(), new_addr);
                 }
 
-                bss_offset += size_raw;
+                extra_data_offset += size_raw;
 
                 let mut output_file = File::options().create(true).write(true).append(true).open(format!("{}{}{}.bin", output, path, name))?;
                 output_file.write(&vec![0u8; size_raw as usize])?;
