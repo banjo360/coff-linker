@@ -32,6 +32,10 @@ struct Args {
     #[arg(short, long, default_value = "addresses.txt")]
     addresses: String,
 
+    /// File where to store the addresses of newly created symbols
+    #[arg(short, long, default_value = "addresses.generated.txt")]
+    generated: String,
+
     /// Output directory
     #[arg(short, long, default_value = "")]
     output: String,
@@ -128,9 +132,12 @@ fn main() -> Result<()> {
 
     let mut extra_rdata_offset = 0;
     let mut extra_data_offset = 0;
-    let data_section_end = 0x825085b0; // BK's, need to make it dynamic
+    let data_section_end = 0x825085b0u64; // BK's, need to make it dynamic
+    let mut text_section_end = 0x82440cf4u64; // BK's, need to make it dynamic
 
-    // phase 0: get .text size
+    let mut created_symbols = vec![];
+
+    // phase 0: calculate .text symbols addresses
     // phase 1: calculate .rdata's virtual addresses
     // phase 2: patch and export .text
     for phase in 0..3 {
@@ -149,7 +156,14 @@ fn main() -> Result<()> {
             let _lines_count = f.read_u16::<LittleEndian>()?;
             let _characs = f.read_u32::<LittleEndian>()?;
 
-            if name == ".text" && phase == 2 {
+            if name == ".text" && phase == 0 {
+                let self_name_vec = &section_symbol_names[&section_id];
+                assert_eq!(name, self_name_vec[0].0);
+                let self_name = &self_name_vec[1].0;
+                symbol_addresses.insert(self_name.clone(), text_section_end);
+                created_symbols.push(self_name);
+                text_section_end += size_raw as u64;
+            } else if name == ".text" && phase == 2 {
                 let pos = f.stream_position()?;
                 let self_name_vec = &section_symbol_names[&section_id];
                 assert_eq!(name, self_name_vec[0].0);
@@ -246,27 +260,6 @@ fn main() -> Result<()> {
                 f.read(&mut buff).unwrap();
 
                 assert_eq!(reloc_count, 0);
-                /*if reloc_count > 0 {
-                    f.seek(SeekFrom::Start(reloc_ptr as u64))?;
-                    for _ in 0..reloc_count {
-                        let offset = f.read_u32::<LittleEndian>()?;
-                        let symtab_index = f.read_u32::<LittleEndian>()?;
-                        let type_ = f.read_u16::<LittleEndian>()?;
-                        assert_eq!(type_, 0x0002);
-
-                        let sym_name = &symbols[symtab_index as usize];
-                        let patched = if symbol_addresses.contains_key(sym_name) {
-                            symbol_addresses[sym_name] as u32
-                        } else {
-                            panic!("symbol '{}' not found.", sym_name);
-                        };
-     
-                        buff[offset as usize]       = (patched >> 24) as u8;
-                        buff[(offset + 1) as usize] = (patched >> 16) as u8;
-                        buff[(offset + 2) as usize] = (patched >> 8)  as u8;
-                        buff[(offset + 3) as usize] = patched         as u8;
-                    }
-                }*/
 
                 let mut output_file = File::options().create(true).write(true).append(true).open(format!("{}{}{}.bin", output, path, name))?;
                 output_file.write(&buff)?;
@@ -277,10 +270,7 @@ fn main() -> Result<()> {
                 assert_eq!(name, self_name_vec[0].0);
                 let self_name = &self_name_vec[1].0;
 
-                println!("{:?}", self_name_vec);
-
-                // hardcoded Banjo's ".data end section" address
-                let new_addr = 0x825085b0 + extra_data_offset as u64;
+                let new_addr = data_section_end + extra_data_offset as u64;
                 symbol_addresses.insert(self_name.clone(), new_addr);
                 extra_data_offset += size_raw;
 
@@ -331,6 +321,11 @@ fn main() -> Result<()> {
                 f.seek(SeekFrom::Start(pos))?;
             }
         }
+    }
+
+    let mut generated_file = File::options().create(true).write(true).truncate(true).open(&args.generated)?;
+    for sym in created_symbols {
+        writeln!(generated_file, "{:#010x} {}", symbol_addresses[sym], sym)?;
     }
 
     Ok(())
