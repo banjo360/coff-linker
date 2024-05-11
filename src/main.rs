@@ -259,7 +259,27 @@ fn main() -> Result<()> {
                 let mut buff = vec![0; size_raw as usize];
                 f.read(&mut buff).unwrap();
 
-                assert_eq!(reloc_count, 0);
+                if reloc_count > 0 {
+                    f.seek(SeekFrom::Start(reloc_ptr as u64))?;
+                    for _ in 0..reloc_count {
+                        let offset = f.read_u32::<LittleEndian>()?;
+                        let symtab_index = f.read_u32::<LittleEndian>()?;
+                        let type_ = f.read_u16::<LittleEndian>()?;
+                        assert_eq!(type_, 0x0002);
+
+                        let sym_name = &symbols[symtab_index as usize];
+                        let patched = if symbol_addresses.contains_key(sym_name) {
+                            symbol_addresses[sym_name] as u32
+                        } else {
+                            panic!("symbol '{}' not found.", sym_name);
+                        };
+     
+                        buff[offset as usize]       = (patched >> 24) as u8;
+                        buff[(offset + 1) as usize] = (patched >> 16) as u8;
+                        buff[(offset + 2) as usize] = (patched >> 8)  as u8;
+                        buff[(offset + 3) as usize] = patched         as u8;
+                    }
+                }
 
                 let mut output_file = File::options().create(true).write(true).append(true).open(format!("{}{}{}.bin", output, path, name))?;
                 output_file.write(&buff)?;
