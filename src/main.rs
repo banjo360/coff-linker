@@ -248,11 +248,12 @@ fn main() -> Result<()> {
                 let pos = f.stream_position()?;
                 let self_name_vec = &section_symbol_names[&section_id];
                 assert_eq!(name, self_name_vec[0].0);
-                let self_name = &self_name_vec[1].0;
 
                 // hardcoded Banjo's ".rdata end section" address
                 let new_addr = 0x82079C88 + extra_rdata_offset as u64;
-                symbol_addresses.insert(self_name.clone(), new_addr);
+                for (self_name, offset) in self_name_vec.iter().skip(1) {
+                    symbol_addresses.insert(self_name.clone(), new_addr + *offset as u64);
+                }
                 extra_rdata_offset += size_raw;
 
                 f.seek(SeekFrom::Start(raw_data as u64))?;
