@@ -13,14 +13,14 @@ use std::io::Result;
 use std::io::Read;
 use std::io::BufReader;
 
-static ADDI_INST: u8 = 0x38;
-static ADDIS_INST: u8 = 0x3C;
-static B_INST: u8 = 0x48;
-static LFD_INST: u8 = 0xC8;
-static LFS_INST: u8 = 0xC0;
-static LWZ_INST: u8 = 0x80;
-static STW_INST: u8 = 0x90;
-static STB_INST: u8 = 0x98;
+const ADDI_INST: u8 = 0x38;
+const ADDIS_INST: u8 = 0x3C;
+const B_INST: u8 = 0x48;
+const LFD_INST: u8 = 0xC8;
+const LFS_INST: u8 = 0xC0;
+const LWZ_INST: u8 = 0x80;
+const STW_INST: u8 = 0x90;
+const STB_INST: u8 = 0x98;
 
 /// Patches an .OBJ file
 #[derive(Parser, Debug)]
@@ -194,56 +194,39 @@ fn main() -> Result<()> {
 
                         let instruction = buff[offset as usize] & 0b11111100;
 
-                        if instruction == B_INST {
-                            assert_eq!(type_, 0x0006);
+                        match instruction {
+                            B_INST => {
+                                assert_eq!(type_, 0x0006);
 
-                            if !symbol_addresses.contains_key(self_name) {
-                                panic!("Can't find address of '{self_name}'");
-                            }
+                                if !symbol_addresses.contains_key(self_name) {
+                                    panic!("Can't find address of '{self_name}'");
+                                }
 
-                            let curr_addr = symbol_addresses[self_name] as u32 + offset;
-                            let addr_diff = ((patched as i64) - (curr_addr as i64)) / 4;
+                                let curr_addr = symbol_addresses[self_name] as u32 + offset;
+                                let addr_diff = ((patched as i64) - (curr_addr as i64)) / 4;
 
-                            buff[offset as usize]       = (buff[offset as usize] & 0b11111100) | ((addr_diff >> 22) & 0b11) as u8;
-                            buff[(offset + 1) as usize] = ((addr_diff >> 14) & 0xff) as u8;
-                            buff[(offset + 2) as usize] = ((addr_diff >> 6) & 0xff) as u8;
-                            buff[(offset + 3) as usize] = (buff[(offset + 3) as usize] & 0b11) | ((addr_diff << 2) & 0b11111100) as u8;
-                        } else if instruction == ADDIS_INST {
-                            assert_eq!(type_, 0x0010);
-                            let third_byte = if (patched & 0x8000) != 0 {
-                                (((patched >> 16) + 1) & 0xff) as u8
-                            } else {
-                                ((patched >> 16) & 0xff) as u8
-                            };
-                            buff[(offset + 2) as usize] = (patched >> 24) as u8;
-                            buff[(offset + 3) as usize] = third_byte;
-                        } else if instruction == LFD_INST {
-                            assert_eq!(type_, 0x0011);
-                            buff[(offset + 2) as usize] = ((patched >> 8) & 0xff) as u8;
-                            buff[(offset + 3) as usize] = (patched & 0xff) as u8;
-                        } else if instruction == LFS_INST {
-                            assert_eq!(type_, 0x0011);
-                            buff[(offset + 2) as usize] = ((patched >> 8) & 0xff) as u8;
-                            buff[(offset + 3) as usize] = (patched & 0xff) as u8;
-                        } else if instruction == LWZ_INST {
-                            assert_eq!(type_, 0x0011);
-                            buff[(offset + 2) as usize] = ((patched >> 8) & 0xff) as u8;
-                            buff[(offset + 3) as usize] = (patched & 0xff) as u8;
-                        } else if instruction == STW_INST {
-                            assert_eq!(type_, 0x0011);
-                            buff[(offset + 2) as usize] = ((patched >> 8) & 0xff) as u8;
-                            buff[(offset + 3) as usize] = (patched & 0xff) as u8;
-                        } else if instruction == ADDI_INST {
-                            assert_eq!(type_, 0x0011);
-                            buff[(offset + 2) as usize] = ((patched >> 8) & 0xff) as u8;
-                            buff[(offset + 3) as usize] = (patched & 0xff) as u8;
-                        } else if instruction == STB_INST {
-                            assert_eq!(type_, 0x0011);
-                            buff[(offset + 2) as usize] = ((patched >> 8) & 0xff) as u8;
-                            buff[(offset + 3) as usize] = (patched & 0xff) as u8;
-                        } else {
-                            panic!("{sym_name}: Unknown instruction 0x{:x} ({}) at offset {:#X}", instruction, instruction >> 2, offset + raw_data);
-                        }
+                                buff[offset as usize]       = (buff[offset as usize] & 0b11111100) | ((addr_diff >> 22) & 0b11) as u8;
+                                buff[(offset + 1) as usize] = ((addr_diff >> 14) & 0xff) as u8;
+                                buff[(offset + 2) as usize] = ((addr_diff >> 6) & 0xff) as u8;
+                                buff[(offset + 3) as usize] = (buff[(offset + 3) as usize] & 0b11) | ((addr_diff << 2) & 0b11111100) as u8;
+                            },
+                            ADDIS_INST => {
+                                assert_eq!(type_, 0x0010);
+                                let third_byte = if (patched & 0x8000) != 0 {
+                                    (((patched >> 16) + 1) & 0xff) as u8
+                                } else {
+                                    ((patched >> 16) & 0xff) as u8
+                                };
+                                buff[(offset + 2) as usize] = (patched >> 24) as u8;
+                                buff[(offset + 3) as usize] = third_byte;
+                            },
+                            LFD_INST | LFS_INST | LWZ_INST | STW_INST | ADDI_INST | STB_INST => {
+                                assert_eq!(type_, 0x0011);
+                                buff[(offset + 2) as usize] = ((patched >> 8) & 0xff) as u8;
+                                buff[(offset + 3) as usize] = (patched & 0xff) as u8;
+                            },
+                            _ => panic!("{sym_name}: Unknown instruction 0x{:x} ({}) at offset {:#X}", instruction, instruction >> 2, offset + raw_data),
+                        };
                     }
                 }
 
