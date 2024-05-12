@@ -20,6 +20,7 @@ static LFD_INST: u8 = 0xC8;
 static LFS_INST: u8 = 0xC0;
 static LWZ_INST: u8 = 0x80;
 static STW_INST: u8 = 0x90;
+static STB_INST: u8 = 0x98;
 
 /// Patches an .OBJ file
 #[derive(Parser, Debug)]
@@ -233,6 +234,10 @@ fn main() -> Result<()> {
                             buff[(offset + 2) as usize] = ((patched >> 8) & 0xff) as u8;
                             buff[(offset + 3) as usize] = (patched & 0xff) as u8;
                         } else if instruction == ADDI_INST {
+                            assert_eq!(type_, 0x0011);
+                            buff[(offset + 2) as usize] = ((patched >> 8) & 0xff) as u8;
+                            buff[(offset + 3) as usize] = (patched & 0xff) as u8;
+                        } else if instruction == STB_INST {
                             assert_eq!(type_, 0x0011);
                             buff[(offset + 2) as usize] = ((patched >> 8) & 0xff) as u8;
                             buff[(offset + 3) as usize] = (patched & 0xff) as u8;
