@@ -52,7 +52,7 @@ fn main() -> Result<()> {
             let linedata: Vec<_> = line.split(" ").collect();
             assert_eq!(linedata.len(), 2);
             
-            let addr = u64::from_str_radix(&linedata[0][2..], 16).unwrap();
+            let addr = u64::from_str_radix(&linedata[0], 16).unwrap();
             let name = linedata[1].to_string();
 
             symbol_addresses.insert(name, addr);
@@ -334,7 +334,7 @@ fn main() -> Result<()> {
 
     let mut generated_file = File::options().create(true).write(true).truncate(true).open(&args.generated)?;
     for sym in created_symbols {
-        writeln!(generated_file, "{:#010x} {}", symbol_addresses[sym], sym)?;
+        writeln!(generated_file, "{:08x} {}", symbol_addresses[sym], sym)?;
     }
 
     Ok(())
