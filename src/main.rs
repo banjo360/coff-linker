@@ -19,6 +19,7 @@ const B_INST: u8 = 0x48;
 const LFD_INST: u8 = 0xC8;
 const LFS_INST: u8 = 0xC0;
 const LWZ_INST: u8 = 0x80;
+const LWZU_INST: u8 = 0x88;
 const STW_INST: u8 = 0x90;
 const STB_INST: u8 = 0x98;
 
@@ -220,12 +221,12 @@ fn main() -> Result<()> {
                                 buff[(offset + 2) as usize] = (patched >> 24) as u8;
                                 buff[(offset + 3) as usize] = third_byte;
                             },
-                            LFD_INST | LFS_INST | LWZ_INST | STW_INST | ADDI_INST | STB_INST => {
+                            LFD_INST | LFS_INST | LWZ_INST | LWZU_INST | STW_INST | ADDI_INST | STB_INST => {
                                 assert_eq!(type_, 0x0011);
                                 buff[(offset + 2) as usize] = ((patched >> 8) & 0xff) as u8;
                                 buff[(offset + 3) as usize] = (patched & 0xff) as u8;
                             },
-                            _ => panic!("{sym_name}: Unknown instruction 0x{:x} ({}) at offset {:#X}", instruction, instruction >> 2, offset + raw_data),
+                            _ => panic!("{sym_name}: Unknown instruction 0x{:x} ({}) at offset {:#X} (for symbol '{sym_name}')", instruction, instruction >> 2, offset + raw_data),
                         };
                     }
                 }
