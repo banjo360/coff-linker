@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::io::BufRead;
 use byteorder::{ReadBytesExt, LittleEndian};
 use clap::Parser;
+use clap_num::maybe_hex;
 
 use std::fs::File;
 use std::io::Seek;
@@ -33,6 +34,18 @@ struct Args {
     /// File containing the symbols addresses
     #[arg(short, long, default_value = "addresses.txt")]
     addresses: String,
+
+    /// Virtual address of the end of the .data section
+    #[arg(short, long, value_parser=maybe_hex::<u32>)]
+    data: u32,
+
+    /// Virtual address of the end of the .rdata section
+    #[arg(short, long, value_parser=maybe_hex::<u32>)]
+    rdata: u32,
+
+    /// Virtual address of the end of the .text section
+    #[arg(short, long, value_parser=maybe_hex::<u32>)]
+    text: u32,
 
     /// File where to store the addresses of newly created symbols
     #[arg(short, long, default_value = "addresses.generated.txt")]
@@ -135,9 +148,9 @@ fn main() -> Result<()> {
     let mut extra_rdata_offset = 0;
     let mut extra_data_offset = 0;
     let mut extra_text_offset = 0;
-    let data_section_end = 0x825085b0u64; // BK's, need to make it dynamic
-    let rdata_section_end = 0x82079C88u64; // BK's, need to make it dynamic
-    let text_section_end = 0x82440cf4u64; // BK's, need to make it dynamic
+    let data_section_end = args.data as u64;
+    let rdata_section_end = args.rdata as u64;
+    let text_section_end = args.text as u64;
 
     let mut created_symbols = vec![];
 
