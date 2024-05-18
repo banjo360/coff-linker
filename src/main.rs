@@ -134,8 +134,10 @@ fn main() -> Result<()> {
 
     let mut extra_rdata_offset = 0;
     let mut extra_data_offset = 0;
+    let mut extra_text_offset = 0;
     let data_section_end = 0x825085b0u64; // BK's, need to make it dynamic
-    let mut text_section_end = 0x82440cf4u64; // BK's, need to make it dynamic
+    let rdata_section_end = 0x82079C88u64; // BK's, need to make it dynamic
+    let text_section_end = 0x82440cf4u64; // BK's, need to make it dynamic
 
     let mut created_symbols = vec![];
 
@@ -162,9 +164,9 @@ fn main() -> Result<()> {
                 let self_name_vec = &section_symbol_names[&section_id];
                 assert_eq!(name, self_name_vec[0].0);
                 let self_name = &self_name_vec[1].0;
-                symbol_addresses.insert(self_name.clone(), text_section_end);
+                symbol_addresses.insert(self_name.clone(), text_section_end + extra_text_offset);
                 created_symbols.push(self_name);
-                text_section_end += size_raw as u64;
+                extra_text_offset += size_raw as u64;
             } else if name == ".text" && phase == 2 {
                 let pos = f.stream_position()?;
                 let self_name_vec = &section_symbol_names[&section_id];
@@ -238,12 +240,11 @@ fn main() -> Result<()> {
                 let self_name_vec = &section_symbol_names[&section_id];
                 assert_eq!(name, self_name_vec[0].0);
 
-                // hardcoded Banjo's ".rdata end section" address
-                let new_addr = 0x82079C88 + extra_rdata_offset as u64;
+                let new_addr = rdata_section_end + extra_rdata_offset;
                 for (self_name, offset) in self_name_vec.iter().skip(1) {
                     symbol_addresses.insert(self_name.clone(), new_addr + *offset as u64);
                 }
-                extra_rdata_offset += size_raw;
+                extra_rdata_offset += size_raw as u64;
 
                 f.seek(SeekFrom::Start(raw_data as u64))?;
                 let mut buff = vec![0; size_raw as usize];
@@ -280,9 +281,9 @@ fn main() -> Result<()> {
                 assert_eq!(name, self_name_vec[0].0);
                 let self_name = &self_name_vec[1].0;
 
-                let new_addr = data_section_end + extra_data_offset as u64;
+                let new_addr = data_section_end + extra_data_offset;
                 symbol_addresses.insert(self_name.clone(), new_addr);
-                extra_data_offset += size_raw;
+                extra_data_offset += size_raw as u64;
 
                 f.seek(SeekFrom::Start(raw_data as u64))?;
                 let mut buff = vec![0; size_raw as usize];
@@ -319,11 +320,11 @@ fn main() -> Result<()> {
                 assert_eq!(name, self_name_vec[0].0);
 
                 for (self_name, offset) in self_name_vec.iter().skip(1) {
-                    let new_addr = data_section_end + extra_data_offset as u64 + *offset as u64;
+                    let new_addr = data_section_end + extra_data_offset + *offset as u64;
                     symbol_addresses.insert(self_name.clone(), new_addr);
                 }
 
-                extra_data_offset += size_raw;
+                extra_data_offset += size_raw as u64;
 
                 let mut output_file = File::options().create(true).write(true).append(true).open(format!("{}{}{}.bin", output, path, name))?;
                 output_file.write(&vec![0u8; size_raw as usize])?;
