@@ -153,6 +153,7 @@ fn main() -> Result<()> {
     let text_section_end = args.text.unwrap_or(0) as u64;
 
     let mut created_symbols = vec![];
+    let mut output_text_file = File::options().create(true).write(true).append(true).open(format!("{}{}.bin", output, path))?;
 
     // phase 0: calculate .text symbols addresses
     // phase 1: calculate .rdata's virtual addresses
@@ -249,7 +250,13 @@ fn main() -> Result<()> {
                     }
                 }
 
-                std::fs::write(format!("{}{}.bin", output, self_name), buff)?;
+                let flen = output_text_file.metadata()?.len();
+                if (flen % 8) != 0 {
+                    let zeroes = vec![0u8; (8 - (flen % 8)) as usize];
+                    output_text_file.write(&zeroes)?;
+                }
+                output_text_file.write(&buff)?;
+
                 f.seek(SeekFrom::Start(pos))?;
             } else if name == ".rdata" && phase == 1 {
                 let pos = f.stream_position()?;
