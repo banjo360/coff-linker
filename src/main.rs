@@ -153,7 +153,7 @@ fn main() -> Result<()> {
     let text_section_end = args.text.unwrap_or(0) as u64;
 
     let mut created_symbols = vec![];
-    let mut output_text_file = File::options().create(true).write(true).append(true).open(format!("{}{}.bin", output, path))?;
+    let mut output_text_file = File::options().create(true).write(true).truncate(true).open(format!("{}{}.bin", output, path))?;
 
     // phase 0: calculate .text symbols addresses
     // phase 1: calculate .rdata's virtual addresses
